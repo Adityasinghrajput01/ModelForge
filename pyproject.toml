@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoforge-engine"
-version = "0.1.0"
+version = "0.1.1"
 description = "A transparent, local-first AutoML framework for automated ML pipeline discovery."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 
 authors = [
-    { name = "Aditya Kumar Singh" }
+    { name = "Aditya Kumar Singh", email = "adityasingh45245@gmail.com" }
 ]
 
 dependencies = [
@@ -40,6 +40,11 @@ dev = [
     "black>=24.0",
     "mypy>=1.10"
 ]
+
+[project.urls]
+Homepage = "https://github.com/Adityasinghrajput01/ModelForge"
+Repository = "https://github.com/Adityasinghrajput01/ModelForge"
+Issues = "https://github.com/Adityasinghrajput01/ModelForge/issues"
 
 [project.scripts]
 modelforge = "modelforge.cli:app"
