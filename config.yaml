@@ -1,0 +1,25 @@
+target: price
+
+task_type: regression
+
+objective: balanced
+
+test_size: 0.2
+
+cv: 5
+
+random_state: 42
+
+models:
+  - linear_regression
+  - ridge
+  - random_forest_regressor
+  - extra_trees_regressor
+  - gradient_boosting_regressor
+
+excluded_columns:
+  - id
+
+feature_selection:
+  variance_threshold: null
+  correlation_threshold: 0.95

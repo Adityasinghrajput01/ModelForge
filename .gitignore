@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# ModelForge local artifacts
+.modelforge/
+
+# Generated model files
+*.joblib
+*.pkl
+*.pickle
+
+# Generated prediction files
+predictions.csv
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
