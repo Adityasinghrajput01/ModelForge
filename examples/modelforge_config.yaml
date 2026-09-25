@@ -1,0 +1,9 @@
+target: price
+objective: balanced
+test_size: 0.2
+cv: 5
+random_state: 42
+
+feature_selection:
+  variance_threshold: 0.0
+  correlation_threshold: 0.95
