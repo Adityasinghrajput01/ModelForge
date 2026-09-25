@@ -4,15 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoforge-engine"
-version = "0.1.1"
+version = "0.1.2"
 description = "A transparent, local-first AutoML framework for automated ML pipeline discovery."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
 
 authors = [
     { name = "Aditya Kumar Singh", email = "adityasingh45245@gmail.com" }
 ]
+
+license = { text = "MIT" }
 
 dependencies = [
     "numpy>=1.26",
