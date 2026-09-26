@@ -60,7 +60,15 @@ class DatasetLoader:
             )
 
         if extension == ".csv":
-            return pd.read_csv(path)
+            # Pandas' default NA vocabulary includes ordinary text values
+            # such as "NA", "N/A", and "NULL". Preserve these when they
+            # appear as literal dataset values while still recognizing
+            # genuinely empty CSV fields as missing.
+            return pd.read_csv(
+                path,
+                keep_default_na=False,
+                na_values=[""],
+            )
 
         if extension in {".xlsx", ".xls"}:
             return pd.read_excel(path)

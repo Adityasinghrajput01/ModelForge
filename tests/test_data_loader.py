@@ -25,6 +25,21 @@ def test_load_csv(tmp_path):
     assert list(result.columns) == ["age", "salary"]
 
 
+def test_load_csv_preserves_na_like_text_and_detects_blank_cells(tmp_path):
+    file_path = tmp_path / "categories.csv"
+    file_path.write_text(
+        "category,notes\nNA,available\nN/A,\nNULL,unknown\n",
+        encoding="utf-8",
+    )
+
+    result = DatasetLoader().load(str(file_path))
+
+    assert result["category"].tolist() == ["NA", "N/A", "NULL"]
+    assert result["notes"].iloc[1] is pd.NA or pd.isna(
+        result["notes"].iloc[1]
+    )
+
+
 def test_missing_file():
     """Test that a missing dataset raises an error."""
 
