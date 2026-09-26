@@ -1,3 +1,5 @@
+import re
+
 from typer.testing import CliRunner
 
 from modelforge.cli import app
@@ -244,7 +246,17 @@ def test_train_config_help():
     )
 
     assert result.exit_code == 0
-    assert "--config" in result.stdout
+
+    # Typer/Rich can add ANSI escape sequences to
+    # help output in CI environments. Remove them
+    # before checking the actual CLI text.
+    clean_output = re.sub(
+        r"\x1b\[[0-9;]*m",
+        "",
+        result.stdout,
+    )
+
+    assert "--config" in clean_output
 
 
 def test_train_cli_target_overrides_config(
