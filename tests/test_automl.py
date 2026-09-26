@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from modelforge.automl import AutoML
+from modelforge import AutoML, automl
 
 
 def make_regression_data() -> pd.DataFrame:
@@ -87,6 +87,33 @@ def test_automl_initial_state():
     assert automl.result is None
     assert automl.target is None
     assert automl.task_type is None
+
+
+def test_automl_convenience_function_prints_report(
+    tmp_path,
+    capsys,
+):
+    data_path = tmp_path / "training.csv"
+    regression_data().to_csv(data_path, index=False)
+
+    fitted = automl(
+        data_path,
+        "target",
+        task_type="regression",
+        model_names=["linear_regression"],
+        cv=2,
+        experiment_directory=tmp_path / "experiments",
+    )
+
+    output = capsys.readouterr().out
+    assert isinstance(fitted, AutoML)
+    assert fitted.is_fitted is True
+    assert "AUTOFORGE REPORT" in output
+    assert "Model Ranking" in output
+    assert "Best Model & Settings" in output
+    assert "Data Quality" in output
+    assert "Run Information" in output
+    assert "AUTOFORGE COMPLETE" in output
 
 
 def test_automl_rejects_invalid_variance_threshold():

@@ -4,14 +4,17 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from modelforge.column_intelligence import ColumnIntelligence
 from modelforge.config import ModelForgeConfig
 from modelforge.cross_validation import CrossValidationEngine
 from modelforge.data_audit import DataQualityAuditor
 from modelforge.data_loader import DatasetLoader
-from modelforge.explainability import ExplainabilityEngine
 from modelforge.experiment_tracker import ExperimentTracker
+from modelforge.explainability import ExplainabilityEngine
 from modelforge.hyperparameter_optimization import (
     HyperparameterOptimizationEngine,
 )
@@ -1470,3 +1473,181 @@ class AutoML:
             raise ValueError(
                 "optimization_max_trials must be at least 1."
             )
+
+
+def automl(
+    data: Any,
+    target: str,
+    *,
+    task_type: str | None = None,
+    model_names: list[str] | None = None,
+    excluded_columns: list[str] | None = None,
+    **options: Any,
+) -> AutoML:
+    """Fit AutoML, print a run report, and return the fitted engine."""
+
+    engine = AutoML(**options)
+    result = engine.fit(
+        data=data,
+        target=target,
+        task_type=task_type,
+        model_names=model_names,
+        excluded_columns=excluded_columns,
+    )
+    _print_automl_report(engine, result)
+    return engine
+
+
+def _print_automl_report(
+    engine: AutoML,
+    result: dict[str, Any],
+) -> None:
+    """Render dataset, ranking, model, and run details in the console."""
+
+    console = Console()
+    profile = result["profile"]
+    audit = result["audit"]
+    ranking = result["ranking"]
+    missing_values = sum(
+        column.get("missing_values", 0)
+        for column in profile["column_info"].values()
+    )
+
+    console.print()
+    console.rule("[bold cyan]AUTOFORGE REPORT[/bold cyan]")
+
+    dataset_table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+    )
+    dataset_table.add_column("Property", style="cyan")
+    dataset_table.add_column("Value", style="white")
+    dataset_table.add_row("Rows", f"{profile['rows']:,}")
+    dataset_table.add_row("Columns", f"{profile['columns']:,}")
+    dataset_table.add_row("Features", f"{profile['columns'] - 1:,}")
+    dataset_table.add_row("Target", str(result["target"]["target"]))
+    dataset_table.add_row("Task", str(result["target"]["task_type"]))
+    dataset_table.add_row("Missing values", f"{missing_values:,}")
+    dataset_table.add_row(
+        "Duplicate rows",
+        f"{profile['duplicate_rows']:,}",
+    )
+    dataset_table.add_row("Quality findings", str(audit["issue_count"]))
+    console.print(
+        Panel(dataset_table, title="Dataset", border_style="cyan")
+    )
+
+    metric_column = (
+        "cv_mean_r2"
+        if engine.task_type == "regression"
+        else "cv_mean_f1"
+    )
+    metric_label = "CV R2" if engine.task_type == "regression" else "CV F1"
+    ranking_columns = [
+        ("rank", "#"),
+        ("model", "Model"),
+        ("overall_score", "Overall"),
+        (metric_column, metric_label),
+        ("speed_score", "Speed"),
+        ("status", "Status"),
+    ]
+    ranking_table = Table(box=None, padding=(0, 1))
+    for column, label in ranking_columns:
+        if column in ranking.columns:
+            ranking_table.add_column(label)
+
+    for _, row in ranking.head(10).iterrows():
+        values = []
+        for column, _ in ranking_columns:
+            if column not in ranking.columns:
+                continue
+            value = row[column]
+            if isinstance(value, (int, float)):
+                values.append(f"{value:.4f}")
+            else:
+                values.append(str(value))
+        ranking_table.add_row(*values)
+    console.print(
+        Panel(ranking_table, title="Model Ranking", border_style="green")
+    )
+
+    best_row = ranking.loc[
+        ranking["model"] == engine.best_model
+    ].iloc[0]
+    best_table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+    )
+    best_table.add_column("Property", style="cyan")
+    best_table.add_column("Value", style="white")
+    best_table.add_row("Model", str(engine.best_model))
+    best_table.add_row(
+        "Overall score",
+        f"{best_row['overall_score']:.4f}",
+    )
+    if metric_column in ranking.columns:
+        best_table.add_row(metric_label, f"{best_row[metric_column]:.4f}")
+    best_table.add_row("Objective", str(engine.objective))
+    best_table.add_row("Cross-validation", f"{engine.cv} folds")
+    best_table.add_row("Holdout", f"{engine.test_size:.0%}")
+    best_table.add_row(
+        "Optimization",
+        "enabled" if engine.enable_optimization else "disabled",
+    )
+    best_table.add_row(
+        "Variance threshold",
+        str(engine.variance_threshold),
+    )
+    best_table.add_row(
+        "Correlation threshold",
+        str(engine.correlation_threshold),
+    )
+    console.print(
+        Panel(best_table, title="Best Model & Settings", border_style="yellow")
+    )
+
+    audit_table = Table(box=None, padding=(0, 1))
+    audit_table.add_column("Severity", style="yellow")
+    audit_table.add_column("Finding")
+    issues = audit.get("issues", [])
+    for issue in issues[:5]:
+        details = issue["message"]
+        columns = issue.get("columns")
+        if columns:
+            details += " " + ", ".join(map(str, columns[:4]))
+            if len(columns) > 4:
+                details += f" (+{len(columns) - 4} more)"
+        audit_table.add_row(issue["severity"].title(), details)
+    if not issues:
+        audit_table.add_row("OK", "No data-quality issues detected")
+    elif len(issues) > 5:
+        audit_table.add_row("Info", f"{len(issues) - 5} more findings omitted")
+    console.print(
+        Panel(audit_table, title="Data Quality", border_style="magenta")
+    )
+
+    run_summary = result["run_summary"]
+    duration = run_summary.get("duration_seconds")
+    duration_text = (
+        "N/A" if duration is None else f"{duration:.2f} seconds"
+    )
+    run_table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+    )
+    run_table.add_column("Property", style="cyan")
+    run_table.add_column("Value", style="white")
+    run_table.add_row("Run ID", str(result.get("run_id", "N/A")))
+    run_table.add_row(
+        "Experiment ID",
+        str(result.get("experiment_id", "N/A")),
+    )
+    run_table.add_row("Duration", duration_text)
+    run_table.add_row("Models evaluated", str(result["models_evaluated"]))
+    console.print(
+        Panel(run_table, title="Run Information", border_style="blue")
+    )
+    console.rule("[bold green]AUTOFORGE COMPLETE[/bold green]")

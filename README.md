@@ -200,6 +200,20 @@ model file.
 
 ## Use ModelForge from Python
 
+For a one-call workflow that prints a dataset, model-ranking, data-quality,
+and run report, use the lowercase `automl` helper. It accepts a file path or a
+pandas DataFrame and returns the fitted `AutoML` instance:
+
+```python
+from modelforge import automl
+
+run = automl("data/heart_failure.csv", "DEATH_EVENT")
+predictions = run.predict("data/new_patients.csv")
+```
+
+Pass options such as `task_type="classification"`, `cv=5`, or
+`model_names=["logistic_regression"]` as keyword arguments when needed.
+
 Pass a pandas DataFrame to `AutoML.fit`, name the target column, then save the
 fitted pipeline. Replace the example path with the path to your own dataset.
 
