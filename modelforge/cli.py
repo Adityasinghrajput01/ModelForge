@@ -377,6 +377,7 @@ def train(
                 task_type=resolved_task_type,
                 model_names=selected_models,
                 excluded_columns=excluded_columns,
+                print_report=False,
             )
 
         model_path = automl.save(

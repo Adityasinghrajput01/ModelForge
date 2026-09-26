@@ -124,7 +124,8 @@ def test_fit_can_use_target_from_config(monkeypatch):
                 "price": [1, 2, 3],
                 "feature": [4, 5, 6],
             }
-        )
+        ),
+        print_report=False,
     )
 
     assert captured["target"] == "price"
@@ -187,6 +188,7 @@ def test_explicit_fit_values_override_config():
             task_type="regression",
             model_names=["ridge"],
             excluded_columns=["explicit_column"],
+            print_report=False,
         )
     finally:
         monkeypatch.undo()

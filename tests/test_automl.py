@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -100,7 +101,7 @@ def test_automl_convenience_function_prints_report(
         data_path,
         "target",
         task_type="regression",
-        model_names=["linear_regression"],
+        model_names=["linear_regression", "ridge"],
         cv=2,
         experiment_directory=tmp_path / "experiments",
     )
@@ -113,7 +114,86 @@ def test_automl_convenience_function_prints_report(
     assert "Best Model & Settings" in output
     assert "Data Quality" in output
     assert "Run Information" in output
+    assert "Pipeline Information" in output
     assert "AUTOFORGE COMPLETE" in output
+    assert f"{fitted.result['profile']['rows']:,}" in output
+    assert f"{fitted.result['profile']['columns']:,}" in output
+    assert fitted.result["target"]["target"] in output
+    assert fitted.result["target"]["task_type"] in output
+    assert fitted.experiment_id in output
+    for model in fitted.result["ranking"]["model"]:
+        assert fitted.registry.get(model).name in output
+    metric_columns = [
+        column
+        for column in fitted.result["ranking"].columns
+        if column.startswith("cv_mean_")
+        and not column.endswith("_seconds")
+    ]
+    assert metric_columns
+    for column in metric_columns:
+        metric_label = column.removeprefix("cv_mean_")
+        metric_label = metric_label.replace("_", " ").upper()
+        metric_label = metric_label.replace("ROC AUC", "ROC-AUC")
+        assert f"CV {metric_label}" in output
+
+
+def test_automl_fit_prints_report_by_default(
+    capsys,
+    tmp_path,
+):
+    data = regression_data()
+    engine = AutoML(
+        cv=2,
+        experiment_directory=tmp_path / "experiments",
+    )
+
+    result = engine.fit(
+        data,
+        target="target",
+        task_type="regression",
+        model_names=["linear_regression", "ridge"],
+    )
+
+    output = capsys.readouterr().out
+    assert f"{result['profile']['rows']:,}" in output
+    assert f"{result['profile']['columns']:,}" in output
+    assert result["target"]["target"] in output
+    assert result["target"]["task_type"] in output
+    assert result["experiment_id"] in output
+    for model in result["ranking"]["model"]:
+        assert engine.registry.get(model).name in output
+    assert "Pipeline Information" in output
+
+
+def test_classification_report_shows_metrics_for_all_models(
+    capsys,
+    tmp_path,
+):
+    engine = AutoML(
+        cv=2,
+        experiment_directory=tmp_path / "experiments",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        result = engine.fit(
+            classification_data(),
+            target="target",
+            task_type="classification",
+            model_names=["logistic_regression", "svc"],
+        )
+
+    output = capsys.readouterr().out
+    assert "CV F1" in output
+    assert "CV ROC-AUC" in output
+    assert engine.registry.get(result["best_model"]).name in output
+    assert result["experiment_id"] in output
+    for model in result["ranking"]["model"]:
+        assert engine.registry.get(model).name in output
+    for column in ("cv_mean_f1", "cv_mean_roc_auc"):
+        for value in result["ranking"][column]:
+            rendered_value = "N/A" if pd.isna(value) else f"{value:.4f}"
+            assert rendered_value in output
 
 
 def test_automl_rejects_invalid_variance_threshold():

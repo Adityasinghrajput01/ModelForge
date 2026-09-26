@@ -487,10 +487,9 @@ class ModelRegistry:
                 task_type="classification",
                 category="svm",
                 requires_scaling=True,
-                supports_probability=True,
+                supports_probability=False,
                 default_params={
                     "kernel": "rbf",
-                    "probability": True,
                 },
                 hyperparameter_space={
                     "C": [

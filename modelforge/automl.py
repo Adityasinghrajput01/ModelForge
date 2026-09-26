@@ -233,6 +233,7 @@ class AutoML:
         task_type: str | None = None,
         model_names: list[str] | None = None,
         excluded_columns: list[str] | None = None,
+        print_report: bool = True,
     ) -> dict[str, Any]:
         """
         Run the complete ModelForge AutoML workflow.
@@ -241,7 +242,11 @@ class AutoML:
         recorded after successful or failed execution.
 
         Reproducibility metadata is captured for every run.
+        Set print_report=False to suppress the completion report.
         """
+
+        if not isinstance(print_report, bool):
+            raise TypeError("print_report must be a boolean.")
 
         target = (
             target
@@ -356,6 +361,9 @@ class AutoML:
             )
 
             self.result = result
+
+            if print_report:
+                _print_automl_report(self, result)
 
             return result
 
@@ -1487,14 +1495,13 @@ def automl(
     """Fit AutoML, print a run report, and return the fitted engine."""
 
     engine = AutoML(**options)
-    result = engine.fit(
+    engine.fit(
         data=data,
         target=target,
         task_type=task_type,
         model_names=model_names,
         excluded_columns=excluded_columns,
     )
-    _print_automl_report(engine, result)
     return engine
 
 
@@ -1508,6 +1515,7 @@ def _print_automl_report(
     profile = result["profile"]
     audit = result["audit"]
     ranking = result["ranking"]
+    target_info = result["target"]
     missing_values = sum(
         column.get("missing_values", 0)
         for column in profile["column_info"].values()
@@ -1525,9 +1533,8 @@ def _print_automl_report(
     dataset_table.add_column("Value", style="white")
     dataset_table.add_row("Rows", f"{profile['rows']:,}")
     dataset_table.add_row("Columns", f"{profile['columns']:,}")
-    dataset_table.add_row("Features", f"{profile['columns'] - 1:,}")
-    dataset_table.add_row("Target", str(result["target"]["target"]))
-    dataset_table.add_row("Task", str(result["target"]["task_type"]))
+    dataset_table.add_row("Target", str(target_info["target"]))
+    dataset_table.add_row("Task", str(target_info["task_type"]))
     dataset_table.add_row("Missing values", f"{missing_values:,}")
     dataset_table.add_row(
         "Duplicate rows",
@@ -1538,43 +1545,56 @@ def _print_automl_report(
         Panel(dataset_table, title="Dataset", border_style="cyan")
     )
 
-    metric_column = (
-        "cv_mean_r2"
-        if engine.task_type == "regression"
-        else "cv_mean_f1"
-    )
-    metric_label = "CV R2" if engine.task_type == "regression" else "CV F1"
-    ranking_columns = [
-        ("rank", "#"),
-        ("model", "Model"),
-        ("overall_score", "Overall"),
-        (metric_column, metric_label),
-        ("speed_score", "Speed"),
-        ("status", "Status"),
+    metric_columns = [
+        column
+        for column in ranking.columns
+        if column.startswith("cv_mean_")
+        and not column.endswith("_seconds")
     ]
     ranking_table = Table(box=None, padding=(0, 1))
-    for column, label in ranking_columns:
-        if column in ranking.columns:
-            ranking_table.add_column(label)
+    ranking_table.add_column("#", justify="right", no_wrap=True)
+    ranking_table.add_column("Model", overflow="fold")
+    ranking_table.add_column("CV Metrics", overflow="fold")
 
-    for _, row in ranking.head(10).iterrows():
-        values = []
-        for column, _ in ranking_columns:
-            if column not in ranking.columns:
-                continue
+    for _, row in ranking.sort_values(
+        "rank",
+        na_position="last",
+    ).iterrows():
+        metric_details = []
+        for column in metric_columns:
+            metric_label = column.removeprefix("cv_mean_")
+            metric_label = metric_label.replace("_", " ").upper()
+            metric_label = metric_label.replace("ROC AUC", "ROC-AUC")
             value = row[column]
-            if isinstance(value, (int, float)):
-                values.append(f"{value:.4f}")
-            else:
-                values.append(str(value))
-        ranking_table.add_row(*values)
+            formatted_value = (
+                "N/A" if pd.isna(value) else f"{value:.4f}"
+            )
+            metric_details.append(
+                f"CV {metric_label}: {formatted_value}"
+            )
+        if "overall_score" in ranking.columns:
+            metric_details.append(
+                f"Overall: {row['overall_score']:.4f}"
+            )
+        if "status" in ranking.columns:
+            metric_details.append(f"Status: {row['status']}")
+        model_name = engine.registry.get(str(row["model"])).name
+        rank = row.get("rank")
+        rank_label = "N/A" if pd.isna(rank) else str(int(rank))
+        ranking_table.add_row(
+            rank_label,
+            model_name,
+            " | ".join(metric_details),
+        )
     console.print(
         Panel(ranking_table, title="Model Ranking", border_style="green")
     )
 
-    best_row = ranking.loc[
-        ranking["model"] == engine.best_model
-    ].iloc[0]
+    best_model = result.get("best_model", engine.best_model)
+    best_matches = ranking.loc[
+        ranking["model"].astype(str) == str(best_model)
+    ]
+    best_row = best_matches.iloc[0] if not best_matches.empty else None
     best_table = Table(
         show_header=False,
         box=None,
@@ -1582,13 +1602,25 @@ def _print_automl_report(
     )
     best_table.add_column("Property", style="cyan")
     best_table.add_column("Value", style="white")
-    best_table.add_row("Model", str(engine.best_model))
-    best_table.add_row(
-        "Overall score",
-        f"{best_row['overall_score']:.4f}",
-    )
-    if metric_column in ranking.columns:
-        best_table.add_row(metric_label, f"{best_row[metric_column]:.4f}")
+    best_model_name = engine.registry.get(str(best_model)).name
+    best_table.add_row("Model", best_model_name)
+    if best_row is not None:
+        if "rank" in ranking.columns:
+            best_table.add_row("Rank", str(int(best_row["rank"])))
+        if "overall_score" in ranking.columns:
+            best_table.add_row(
+                "Overall score",
+                f"{best_row['overall_score']:.4f}",
+            )
+        for column in metric_columns:
+            metric_label = column.removeprefix("cv_mean_")
+            metric_label = metric_label.replace("_", " ").upper()
+            metric_label = metric_label.replace("ROC AUC", "ROC-AUC")
+            value = best_row[column]
+            best_table.add_row(
+                f"CV {metric_label}",
+                "N/A" if pd.isna(value) else f"{value:.4f}",
+            )
     best_table.add_row("Objective", str(engine.objective))
     best_table.add_row("Cross-validation", f"{engine.cv} folds")
     best_table.add_row("Holdout", f"{engine.test_size:.0%}")
@@ -1606,6 +1638,51 @@ def _print_automl_report(
     )
     console.print(
         Panel(best_table, title="Best Model & Settings", border_style="yellow")
+    )
+
+    pipeline_table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+    )
+    pipeline_table.add_column("Property", style="cyan")
+    pipeline_table.add_column("Value", style="white")
+    pipeline = result.get("best_pipeline")
+    pipeline_steps = getattr(pipeline, "steps", [])
+    for step_name, step in pipeline_steps:
+        pipeline_table.add_row(
+            str(step_name),
+            type(step).__name__,
+        )
+        for transformer_name, transformer, _ in getattr(
+            step,
+            "transformers_",
+            [],
+        ):
+            if isinstance(transformer, str):
+                description = transformer
+            else:
+                nested_steps = getattr(transformer, "steps", None)
+                if nested_steps:
+                    description = " -> ".join(
+                        type(component).__name__
+                        for _, component in nested_steps
+                    )
+                else:
+                    description = type(transformer).__name__
+            pipeline_table.add_row(
+                f"  {transformer_name}",
+                description,
+            )
+    for name, value in result.get("feature_selection", {}).items():
+        pipeline_table.add_row(
+            name.replace("_", " ").title(),
+            "disabled" if value is None else str(value),
+        )
+    pipeline_table.add_row("Cross-validation", f"{engine.cv}-fold")
+    pipeline_table.add_row("Random state", str(engine.random_state))
+    console.print(
+        Panel(pipeline_table, title="Pipeline Information", border_style="cyan")
     )
 
     audit_table = Table(box=None, padding=(0, 1))

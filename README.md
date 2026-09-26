@@ -216,6 +216,9 @@ Pass options such as `task_type="classification"`, `cv=5`, or
 
 Pass a pandas DataFrame to `AutoML.fit`, name the target column, then save the
 fitted pipeline. Replace the example path with the path to your own dataset.
+`fit` prints a report with dataset details, all evaluated model metrics, the
+selected pipeline, and experiment identifiers by default. Pass
+`print_report=False` to suppress it.
 
 ```python
 from pathlib import Path

@@ -153,6 +153,20 @@ def test_logistic_regression_requires_scaling():
     assert spec.supports_probability is True
 
 
+def test_svc_uses_decision_scores_without_probability_estimates():
+    registry = ModelRegistry()
+
+    spec = registry.get("svc")
+    model = registry.create("svc")
+
+    assert spec.supports_probability is False
+    assert "probability" not in spec.default_params
+    assert model.get_params(deep=False)["probability"] in {
+        False,
+        "deprecated",
+    }
+
+
 def test_tree_models_do_not_require_scaling():
     registry = ModelRegistry()
 
