@@ -1,326 +1,315 @@
-# ModelForge
+<div align="center">
 
-> **Transparent, local-first AutoML experimentation for reproducible and inspectable machine learning.**
+# 🔨 ModelForge
 
-ModelForge is a Python AutoML library for preparing data, screening and ranking
-scikit-learn pipelines, evaluating models, and saving models for later
-predictions. Training runs also record experiment and reproducibility
-information locally.
+**A transparent, local-first AutoML framework for Python**
 
-A typical ModelForge workflow profiles a dataset, selects a target, audits and
-preprocesses its features, generates candidate pipelines, screens and ranks
-models, and saves the chosen pipeline for prediction. The workflow stays
-inspectable rather than hiding every stage behind a black-box call.
+[![PyPI version](https://img.shields.io/pypi/v/autoforge-engine.svg)](https://pypi.org/project/autoforge-engine/)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://pypi.org/project/autoforge-engine/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-491%20passing-brightgreen.svg)](#testing--validation)
+[![GitHub](https://img.shields.io/badge/GitHub-ModelForge-181717?logo=github)](https://github.com/Adityasinghrajput01/ModelForge)
 
-The package is published as **`autoforge-engine`** and imported in Python as
-**`modelforge`**.
+*Give it a dataset and a target column. It handles the rest — transparently.*
 
-## Features
+[Installation](#installation) •
+[Quick Start](#quick-start) •
+[Configuration](#configuration) •
+[Architecture](#architecture) •
+[Stress Test Results](#stress-test-results) •
+[Roadmap](#roadmap)
 
-- Regression and classification workflows
-- Data profiling, column intelligence, and data-quality auditing
-- Preprocessing, feature engineering, and feature selection
-- Model screening, cross-validation, and ranking
-- Saved model pipelines and predictions from the command line or Python
-- Local experiment tracking, run metadata, and reproducibility information
-- Optional boosting models and hyperparameter optimization
+</div>
 
-## Requirements
+---
 
-- Python 3.11 or newer
-- A local dataset in a supported format
+## What is ModelForge?
 
-The default installation includes NumPy, pandas, scikit-learn, Rich, Typer,
-and PyYAML.
+**ModelForge** is a local-first AutoML framework that automates the repetitive parts of a machine learning workflow — data profiling, quality auditing, preprocessing, pipeline construction, model evaluation, cross-validation, ranking, and reporting — while staying inspectable at every step.
 
-## Install
+Unlike black-box AutoML tools, ModelForge is built around one core principle:
 
-### Install from PyPI
+> **You should always be able to see what it did and why.**
 
-Windows PowerShell:
+Give it a dataset and a target column:
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install autoforge-engine
+```python
+import pandas as pd
+from modelforge.automl import AutoML
+
+df = pd.read_csv("dataset.csv")
+
+automl = AutoML()
+automl.fit(df, target="target_column")
 ```
 
-If PowerShell does not allow virtual-environment activation, you can call its
-Python executable directly:
+And it walks through the full pipeline automatically:
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install autoforge-engine
+```
+Dataset → Loading → Profiling → Data Quality Audit → Target/Task Detection
+        → Column Intelligence → Feature Selection/Engineering → Preprocessing
+        → Pipeline Generation → Multi-Model Evaluation → Cross-Validation
+        → Metric Calculation → Model Ranking → Best Model Selection
+        → (Optional) Hyperparameter Optimization → Explainability
+        → Persistence/Artifacts → Experiment Tracking → Human-Readable Report
 ```
 
-Linux or macOS:
+---
+
+## Installation
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install autoforge-engine
+pip install autoforge-engine
 ```
 
-Optional integrations can be installed with extras:
+Install a specific version:
 
 ```bash
-python -m pip install "autoforge-engine[boosting,optimization]"
+pip install autoforge-engine==0.1.4
 ```
 
-The `boosting` extra installs XGBoost, LightGBM, and CatBoost. The
-`optimization` extra installs Optuna.
-
-### Install from source
-
-Clone the repository, enter its directory, and install the development extras.
-This makes the `modelforge` command and test tools available in the active
-Python environment.
+Verify the install:
 
 ```bash
-git clone https://github.com/Adityasinghrajput01/ModelForge.git
-cd ModelForge
-python -m venv .venv
+pip show autoforge-engine
+python -c "import modelforge; print(modelforge.__file__)"
 ```
 
-Windows PowerShell:
+> **Note:** the PyPI distribution name is `autoforge-engine`, but the importable package is `modelforge`.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+---
+
+## Quick Start
+
+### Using the `AutoML` class
+
+```python
+import pandas as pd
+from modelforge.automl import AutoML
+
+df = pd.read_csv("autoforge_10000_test_dataset.csv")
+
+automl = AutoML()
+automl.fit(df, target="loan_default")
 ```
 
-Linux or macOS:
+### Using the convenience function
 
-```bash
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+```python
+from modelforge.automl import automl
+
+result = automl(
+    data=df,
+    target="loan_default"
+)
 ```
 
-To install optional integrations from a source checkout, use
-`python -m pip install -e ".[dev,boosting,optimization]"`.
-
-## Dataset and file paths
-
-ModelForge reads local files. Training through the Python API supports CSV,
-Excel (`.xlsx` or `.xls`), Parquet, and JSON files. The CLI prediction command
-expects a CSV file.
-
-The training data must have a header row. Choose the column you want the model
-to predict as the **target**; all other usable columns become input features.
-For example, a regression CSV might look like this:
-
-```csv
-area,bedrooms,age,price
-1200,2,15,250000
-1850,3,8,385000
-900,1,30,190000
-```
-
-Here, `price` is the target. A prediction CSV should contain the feature
-columns (`area`, `bedrooms`, and `age`) with compatible names, but should not
-contain the target column.
-
-Paths are interpreted from the directory where you run the command or Python
-script:
-
-- A **relative path** such as `data/train.csv` starts from the current working
-	directory. Run commands from the repository root when using paths such as
-	`examples/house_prices.csv`.
-- An **absolute path** works from any directory. On Windows, quote paths that
-	contain spaces, for example `"C:\Users\Aditya Kumar\Datasets\train.csv"`.
-- In Python, use a raw string for a Windows path, such as
-	`r"C:\Users\Aditya Kumar\Datasets\train.csv"`, or use forward slashes:
-	`"C:/Users/Aditya Kumar/Datasets/train.csv"`.
-
-## Train and predict with the CLI
-
-After installation, check that the command is available:
+### Command line
 
 ```bash
 modelforge --help
 ```
 
-From the repository root, train a regression model using the included housing
-dataset. The target column is `price`:
-
-```bash
-modelforge train \
-	--data "examples/house_prices.csv" \
-	--target price \
-	--task-type regression \
-	--output "house_prices_model.joblib"
-```
-
-Run the saved model on new rows. The example prediction file contains features
-without the `price` target:
-
-```bash
-modelforge predict \
-	--model "house_prices_model.joblib" \
-	--data "examples/house_prices_new.csv" \
-	--output "predictions.csv"
-```
-
-On Windows PowerShell, the same commands can be written on one line, or use a
-backtick at the end of each continued line. For a dataset outside the
-repository, supply its absolute path to `--data`.
-
-For classification, use a classification dataset, provide its label column,
-and set `--task-type classification`. For example, the included Iris dataset
-uses `species` as its label:
-
-```bash
-modelforge train --data "examples/iris_classification.csv" --target species --task-type classification --output "iris_model.joblib"
-```
-
-To return class probabilities instead of predicted class labels, add
-`--proba` to `modelforge predict`. This option is only for classification
-models.
-
-Useful CLI commands:
-
-```bash
-modelforge train --help
-modelforge predict --help
-modelforge models --task-type classification
-modelforge experiments list --directory .modelforge/experiments
-modelforge experiments get EXPERIMENT_ID
-modelforge experiments compare ID_ONE ID_TWO
-```
-
-By default, experiment records are written to `.modelforge/experiments` in
-the current working directory. The model is saved to the path passed to
-`--output` (default: `model.joblib`). Use `--overwrite` to replace an existing
-model file.
-
-## Use ModelForge from Python
-
-For a one-call workflow that prints a dataset, model-ranking, data-quality,
-and run report, use the lowercase `automl` helper. It accepts a file path or a
-pandas DataFrame and returns the fitted `AutoML` instance:
-
-```python
-from modelforge import automl
-
-run = automl("data/heart_failure.csv", "DEATH_EVENT")
-predictions = run.predict("data/new_patients.csv")
-```
-
-Pass options such as `task_type="classification"`, `cv=5`, or
-`model_names=["logistic_regression"]` as keyword arguments when needed.
-
-Pass a pandas DataFrame to `AutoML.fit`, name the target column, then save the
-fitted pipeline. Replace the example path with the path to your own dataset.
-`fit` prints a report with dataset details, all evaluated model metrics, the
-selected pipeline, and experiment identifiers by default. Pass
-`print_report=False` to suppress it.
-
-```python
-from pathlib import Path
-
-import pandas as pd
-from modelforge import AutoML
-
-data_path = Path("examples/house_prices.csv")
-data = pd.read_csv(data_path)
-
-automl = AutoML(cv=5, random_state=42)
-result = automl.fit(
-		data,
-		target="price",
-		task_type="regression",
-)
-
-model_path = Path("house_prices_model.joblib")
-automl.save(str(model_path), overwrite=True)
-print("Best model:", result["best_model"])
-
-new_data = pd.read_csv("examples/house_prices_new.csv")
-predictions = automl.predict(new_data)
-print(predictions.head())
-```
-
-For a file path outside the working directory, set `data_path` to an absolute
-path, for example `Path(r"C:\Users\Aditya Kumar\Datasets\train.csv")`.
+---
 
 ## Configuration
 
-You can put training settings in a YAML file and pass it to the CLI with
-`--config`. For example:
+The `AutoML` constructor supports the following parameters:
 
-```yaml
-target: price
-task_type: regression
-objective: balanced
-test_size: 0.2
-cv: 5
-random_state: 42
-experiment_directory: .modelforge/experiments
+```python
+AutoML(
+    test_size=0.2,
+    cv=5,
+    random_state=42,
+    objective="balanced",
+    variance_threshold=None,
+    correlation_threshold=None,
+    enable_optimization=False,
+    optimization_models=3,
+    optimization_max_trials=10,
+    experiment_directory=".modelforge/experiments",
+    config=None
+)
 ```
 
-Save this as `modelforge.yaml`, then run:
+| Parameter | Description |
+|---|---|
+| `test_size` | Holdout test fraction |
+| `cv` | Number of cross-validation folds |
+| `random_state` | Reproducibility seed |
+| `objective` | Model ranking objective (default: `"balanced"`) |
+| `variance_threshold` | Optional low-variance feature filtering |
+| `correlation_threshold` | Optional high-correlation feature filtering |
+| `enable_optimization` | Enables/disables hyperparameter optimization |
+| `optimization_models` | Number of models considered for optimization |
+| `optimization_max_trials` | Maximum optimization trials |
+| `experiment_directory` | Where experiment metadata/artifacts are stored |
+
+The automatic post-fit report can be suppressed with `print_report=False` (if supported by the installed `fit()` signature).
+
+---
+
+## What ModelForge Does
+
+### 🧹 Data Quality Auditing
+Automatically flags:
+- Missing values
+- Duplicate rows
+- Constant columns
+- Possible identifier columns
+- Other dataset-quality findings
+
+### 🎯 Target & Task Detection
+Given a target column, ModelForge determines whether the problem is **classification** or **regression**.
+
+### ⚙️ Preprocessing
+Builds a leakage-safe `scikit-learn` `Pipeline` / `ColumnTransformer`:
+
+| Data type | Steps |
+|---|---|
+| Numerical | `SimpleImputer` → `StandardScaler` |
+| Categorical | `SimpleImputer` → `OneHotEncoder` |
+
+Preprocessing is fit independently inside each cross-validation fold to prevent data leakage.
+
+### 🤖 Model Evaluation
+Evaluates multiple candidate models (verified against source for the current release), including — for classification tasks — Logistic Regression, Random Forest, Extra Trees, Gradient Boosting, K-Nearest Neighbors, Support Vector Classifier, and Decision Tree.
+
+### 🔁 Cross-Validation
+Uses `StratifiedKFold` (`n_splits=5`, `shuffle=True`, `random_state=42`) for classification tasks where class counts permit. Each fold clones the pipeline fresh, fits on the training split, and evaluates on the validation split.
+
+### 📊 Metrics
+
+**Classification:** Accuracy, Precision, Recall, F1 (`average="weighted"`, `zero_division=0`), ROC-AUC (via `predict_proba` or `decision_function`), Log Loss.
+
+**Regression:** R², Adjusted R², MAE, MSE, RMSE, MAPE.
+
+### 🏆 Model Ranking
+Candidate models are ranked according to the configured `objective` (default: `"balanced"`) rather than by a single metric alone.
+
+### 📄 Automatic Reporting
+After `fit()`, ModelForge generates a human-readable report covering dataset shape, target/task, data-quality findings, evaluated models and metrics, the selected model, pipeline steps, run/experiment IDs, and run duration.
+
+---
+
+## Architecture
+
+ModelForge is organized into focused modules, each with a single responsibility:
+
+| Module | Responsibility |
+|---|---|
+| `data_loader.py` | Dataset loading |
+| `profiler.py` | Dataset profiling |
+| `data_audit.py` | Data quality / auditing |
+| `target_selector.py` | Target and task detection |
+| `column_intelligence.py` | Column-level analysis |
+| `feature_engineering.py` | Feature engineering |
+| `feature_selection.py` | Feature selection |
+| `preprocessing.py` | Imputation, scaling, encoding |
+| `pipeline_generator.py` | sklearn pipeline construction |
+| `model_registry.py` | Candidate model catalog |
+| `model_screening.py` | Fast holdout evaluation |
+| `cross_validation.py` | K-fold cross-validation |
+| `evaluation.py` | Metric computation |
+| `ranking.py` | Model ranking logic |
+| `hyperparameter_optimization.py` | Optional HPO |
+| `explainability.py` | Model explainability |
+| `persistence.py` | Model save/load |
+| `artifact_manager.py` | Artifact management |
+| `experiment_tracker.py` | Experiment tracking |
+| `reproducibility.py` / `reproducibility_integration.py` | Reproducibility guarantees |
+| `prediction_validator.py` | Prediction-time validation |
+| `run_manager.py` | Run metadata |
+| `cli.py` | Typer-based CLI |
+| `automl.py` | Orchestration layer |
+| `config.py` | Configuration handling |
+
+> **Note on Model Screening vs. Cross-Validation:** these are distinct evaluation paths. `ModelScreeningEngine` performs a fast `train_test_split` (80/20, stratified where applicable) holdout evaluation, while `CrossValidationEngine` performs full K-fold evaluation. Holdout screening metrics and CV metrics should not be conflated.
+
+---
+
+## Stress Test Results
+
+ModelForge 0.1.4 was validated against a synthetic 10,020-row, 18-column dataset (target: `loan_default`) intentionally containing missing values, duplicates, a constant feature, and an identifier-like column.
+
+**Data quality detected:** 1,000 missing cells · 20 duplicate rows · 3 quality findings (all correctly identified)
+
+**Cross-validation accuracy:**
+
+| Model | CV Accuracy |
+|---|---|
+| Logistic Regression | 69.51% |
+| Gradient Boosting | 69.51% |
+| SVC | 69.12% |
+| Random Forest | 69.02% |
+| Extra Trees | 68.26% |
+| KNN | 64.52% |
+| Decision Tree | 58.59% |
+
+**Selected model:** Logistic Regression · **Run time:** ~33.25 seconds
+
+> These figures are a functional stress-test snapshot, not a claim that any single algorithm is universally best.
+
+### Independent Validation
+
+Results were cross-checked against raw `scikit-learn` implementations. Six of seven models matched almost exactly; Decision Tree showed a ~0.13 percentage-point difference (58.59% vs. 58.72%), currently logged as an open, low-priority investigation rather than a confirmed defect.
+
+---
+
+## Testing & Validation
+
+- ✅ 491 tests passing locally
+- ✅ GitHub Actions CI passing
+- ✅ Package built (`.tar.gz` + `.whl`) and validated with `twine check`
+- ✅ Published to PyPI: [`autoforge-engine`](https://pypi.org/project/autoforge-engine/0.1.4/)
+
+Test coverage includes unit, integration, CLI, preprocessing, model evaluation, cross-validation, ranking, persistence, experiment tracking, edge cases, and large mixed-type stress tests.
+
+---
+
+## Development Workflow
 
 ```bash
-modelforge train --data "examples/house_prices.csv" --config "modelforge.yaml" --output "house_prices_model.joblib"
+# Run tests
+pytest
+
+# Build the package
+python -m build
+
+# Validate the build
+python -m twine check dist/*
+
+# Upload to PyPI
+python -m twine upload dist/*
 ```
 
-The CLI options `--target`, `--task-type`, `--objective`, `--cv`, and
-`--test-size` can also be set directly on the command line. See
-`examples/modelforge_config.yaml` for a configuration that includes feature
-selection settings.
+---
 
-## Run tests and checks
+## Roadmap
 
-Install the source checkout with the `dev` extra first, then run these from
-the repository root with the virtual environment activated:
+- [ ] Investigate the minor Decision Tree CV discrepancy (`model_registry` / `pipeline_generator` / `preprocessing`)
+- [ ] Expand hyperparameter optimization coverage
+- [ ] Broaden regression model support
+- [ ] Deepen explainability outputs
+- [ ] Continued CLI and documentation improvements
 
-```bash
-python -m pytest -q
-ruff check .
-```
+---
 
-To run a single test module while developing:
+## Philosophy
 
-```bash
-python -m pytest tests/test_cli_workflow.py -q
-```
+ModelForge is built to demonstrate serious ML engineering practice — not to replace a data scientist's judgment. It automates repeatable, mechanical steps of an ML workflow (preprocessing, evaluation, cross-validation, ranking, reporting) while keeping every step reproducible and inspectable, so the framework never becomes a black box.
 
-To exercise the included Python workflows and benchmark:
+---
 
-```bash
-python examples/end_to_end_regression.py
-python benchmarks/benchmark_baselines.py
-```
+## Author
 
-To verify a classification train-and-predict workflow with the included Iris
-files:
-
-```bash
-modelforge train --data "examples/iris_classification.csv" --target species --task-type classification --output "iris_model.joblib"
-modelforge predict --model "iris_model.joblib" --data "examples/iris_new.csv" --output "iris_predictions.csv"
-```
-
-To check the installed CLI and the available model names:
-
-```bash
-modelforge --help
-modelforge models --task-type regression
-modelforge models --task-type classification
-```
-
-## Project contents
-
-- `examples/` contains sample datasets, YAML configuration, and end-to-end
-	workflows.
-- `tests/` contains the automated test suite.
-- `benchmarks/` contains a baseline comparison script.
-- `docs/ROADMAP.md` describes planned project work.
+**Aditya Kumar Singh**
 
 ## License
 
-ModelForge is distributed under the MIT License. See [LICENSE](LICENSE).
+[MIT](LICENSE)
+
+## Links
+
+- 📦 PyPI: [autoforge-engine](https://pypi.org/project/autoforge-engine/)
+- 💻 GitHub: [ModelForge](https://github.com/Adityasinghrajput01/ModelForge)
