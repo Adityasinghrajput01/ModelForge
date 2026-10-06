@@ -65,7 +65,7 @@ pip install autoforge-engine
 Install a specific version:
 
 ```bash
-pip install autoforge-engine==0.1.4
+pip install autoforge-engine==1.0.0
 ```
 
 Verify the install:
