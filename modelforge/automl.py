@@ -7,6 +7,7 @@ import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from sklearn.base import clone
 
 from modelforge.column_intelligence import ColumnIntelligence
 from modelforge.config import ModelForgeConfig
@@ -212,6 +213,10 @@ class AutoML:
         self.is_fitted = False
         self.best_pipeline = None
         self.best_model = None
+        self.selected_model = None
+        self.selected_pipeline = None
+        self.selected_rank = None
+        self.selection_method = None
         self.result = None
         self.target = None
         self.task_type = None
@@ -219,6 +224,9 @@ class AutoML:
         self.experiment_id = None
 
         self.reproducibility = None
+
+        self._candidate_pipelines: dict[str, Any] | None = None
+        self._training_data: pd.DataFrame | None = None
 
         self.reproducibility_integration = (
             ReproducibilityIntegration(
@@ -580,6 +588,7 @@ class AutoML:
             )
 
         else:
+            final_candidates = pipelines
             final_ranking = initial_ranking
 
             best_model = self._select_best_model(
@@ -603,6 +612,12 @@ class AutoML:
 
         self.best_pipeline = final_pipeline
         self.best_model = best_model
+        self._candidate_pipelines = dict(final_candidates)
+        self._training_data = dataframe.copy()
+        self.selected_model = None
+        self.selected_pipeline = None
+        self.selected_rank = None
+        self.selection_method = None
         self.is_fitted = True
 
         return {
@@ -641,7 +656,10 @@ class AutoML:
         data: Any,
     ) -> pd.Series:
         """
-        Generate predictions using the fitted pipeline.
+        Generate predictions using the active fitted pipeline.
+
+        Uses the user-selected pipeline when select_model() has been
+        called; otherwise uses the automatically ranked best pipeline.
         """
 
         self._require_fitted()
@@ -649,7 +667,7 @@ class AutoML:
         dataframe = self._load_data(data)
 
         return self.persistence.predict(
-            self.best_pipeline,
+            self._active_pipeline(),
             dataframe,
         )
 
@@ -658,7 +676,10 @@ class AutoML:
         data: Any,
     ) -> pd.DataFrame:
         """
-        Generate class probabilities.
+        Generate class probabilities using the active fitted pipeline.
+
+        Uses the user-selected pipeline when select_model() has been
+        called; otherwise uses the automatically ranked best pipeline.
         """
 
         self._require_fitted()
@@ -672,8 +693,135 @@ class AutoML:
         dataframe = self._load_data(data)
 
         return self.persistence.predict_proba(
-            self.best_pipeline,
+            self._active_pipeline(),
             dataframe,
+        )
+
+    def select_model(
+        self,
+        rank: int | None = None,
+        model: str | None = None,
+    ) -> "AutoML":
+        """
+        Override automatic best-model selection.
+
+        Provide either rank (1-based final ranking position) or model
+        (registry model name). When both are supplied they must refer
+        to the same ranked model.
+
+        The selected candidate pipeline is refitted on the full
+        training dataset before it becomes active for prediction
+        and export.
+        """
+
+        if not self.is_fitted:
+            raise RuntimeError(
+                "ModelForge must be fitted before a "
+                "model can be selected."
+            )
+
+        if rank is None and model is None:
+            raise ValueError(
+                "Provide rank or model to select a model."
+            )
+
+        if rank is not None and model is not None:
+            model_from_rank, resolved_rank = (
+                self._resolve_model_by_rank(rank)
+            )
+            model_from_name, name_rank = (
+                self._resolve_model_by_name(model)
+            )
+
+            if model_from_rank != model_from_name:
+                raise ValueError(
+                    f"Conflicting selection: rank {rank} "
+                    f"resolves to '{model_from_rank}' but "
+                    f"model='{model}' resolves to "
+                    f"'{model_from_name}'."
+                )
+
+            model_name = model_from_rank
+            selection_rank = resolved_rank
+            selection_method = "rank"
+        elif rank is not None:
+            model_name, selection_rank = (
+                self._resolve_model_by_rank(rank)
+            )
+            selection_method = "rank"
+        else:
+            model_name, selection_rank = (
+                self._resolve_model_by_name(model)
+            )
+            selection_method = "name"
+
+        if (
+            self.selected_model == model_name
+            and self.selected_pipeline is not None
+        ):
+            self.selected_rank = selection_rank
+            self.selection_method = selection_method
+            return self
+
+        if self._candidate_pipelines is None:
+            raise RuntimeError(
+                "No candidate pipelines are available "
+                "for model selection."
+            )
+
+        if self._training_data is None:
+            raise RuntimeError(
+                "Training data is not available for "
+                "refitting the selected model."
+            )
+
+        candidate_pipeline = self._candidate_pipelines.get(
+            model_name
+        )
+
+        if candidate_pipeline is None:
+            available = ", ".join(
+                sorted(self._candidate_pipelines)
+            )
+            raise RuntimeError(
+                f"Unable to locate pipeline for model "
+                f"'{model_name}'. Available pipelines: "
+                f"{available}."
+            )
+
+        fitted_pipeline = self._fit_final_pipeline(
+            pipeline=clone(candidate_pipeline),
+            data=self._training_data,
+            target=self.target,
+        )
+
+        self.selected_model = model_name
+        self.selected_pipeline = fitted_pipeline
+        self.selected_rank = selection_rank
+        self.selection_method = selection_method
+
+        return self
+
+    def export_model(
+        self,
+        path: str,
+        overwrite: bool = False,
+    ) -> str:
+        """
+        Export the active pipeline (selected or best) with metadata.
+
+        If select_model() was called, exports the user-selected
+        pipeline. Otherwise exports the automatically ranked best
+        pipeline, matching save() behavior for the model artifact.
+        """
+
+        self._require_fitted()
+
+        return self.persistence.save(
+            pipeline=self._active_pipeline(),
+            path=path,
+            metadata=self._build_export_metadata(),
+            overwrite=overwrite,
         )
 
     def save(
@@ -682,43 +830,18 @@ class AutoML:
         overwrite: bool = False,
     ) -> str:
         """
-        Save the fitted pipeline and metadata.
+        Save the automatically ranked best pipeline and metadata.
+
+        This always persists best_pipeline for backward compatibility.
+        Use export_model() to persist a user-selected model.
         """
 
         self._require_fitted()
 
-        metadata = {
-            "target": self.target,
-            "task_type": self.task_type,
-            "best_model": self.best_model,
-            "objective": self.objective,
-            "test_size": self.test_size,
-            "cv": self.cv,
-            "random_state": self.random_state,
-            "variance_threshold": (
-                self.variance_threshold
-            ),
-            "correlation_threshold": (
-                self.correlation_threshold
-            ),
-            "enable_optimization": (
-                self.enable_optimization
-            ),
-            "optimization_models": (
-                self.optimization_models
-            ),
-            "optimization_max_trials": (
-                self.optimization_max_trials
-            ),
-            "run_id": self.run_id,
-            "experiment_id": self.experiment_id,
-            "reproducibility": self.reproducibility,
-        }
-
         return self.persistence.save(
             pipeline=self.best_pipeline,
             path=path,
-            metadata=metadata,
+            metadata=self._build_save_metadata(),
             overwrite=overwrite,
         )
 
@@ -825,7 +948,7 @@ class AutoML:
 
         importance = (
             self.explainability.feature_importance(
-                self.best_pipeline
+                self._active_pipeline()
             )
         )
 
@@ -1177,6 +1300,246 @@ class AutoML:
         return str(
             successful.iloc[0]["model"]
         )
+
+    def _active_pipeline(self):
+        """
+        Return the user-selected pipeline when set,
+        otherwise the automatically ranked best pipeline.
+        """
+
+        if self.selected_pipeline is not None:
+            return self.selected_pipeline
+
+        return self.best_pipeline
+
+    def _active_model(self) -> str | None:
+        """
+        Return the user-selected model name when set,
+        otherwise the automatically ranked best model.
+        """
+
+        if self.selected_model is not None:
+            return self.selected_model
+
+        return self.best_model
+
+    def _get_ranking(self) -> pd.DataFrame:
+        """
+        Return the final ranking DataFrame from the last fit.
+        """
+
+        if self.result is None:
+            raise RuntimeError(
+                "No ranking is available. "
+                "Fit ModelForge before selecting a model."
+            )
+
+        ranking = self.result.get("ranking")
+
+        if ranking is None:
+            ranking = self.result.get("rankings")
+
+        if ranking is None or not isinstance(
+            ranking,
+            pd.DataFrame,
+        ):
+            raise RuntimeError(
+                "Ranking results are unavailable."
+            )
+
+        if ranking.empty:
+            raise RuntimeError(
+                "Ranking produced no models."
+            )
+
+        return ranking
+
+    def _ordered_ranking(self) -> pd.DataFrame:
+        """
+        Return ranking rows sorted for 1-based positional selection.
+        """
+
+        ranking = self._get_ranking()
+        sort_columns = [
+            column
+            for column in ["rank", "overall_score"]
+            if column in ranking.columns
+        ]
+
+        if not sort_columns:
+            return ranking.reset_index(drop=True)
+
+        ascending = [
+            column != "overall_score"
+            for column in sort_columns
+        ]
+
+        return ranking.sort_values(
+            by=sort_columns,
+            ascending=ascending,
+            na_position="last",
+        ).reset_index(drop=True)
+
+    def _resolve_model_by_rank(
+        self,
+        rank: int,
+    ) -> tuple[str, int]:
+        """
+        Resolve a 1-based position in the sorted final ranking.
+        """
+
+        if isinstance(rank, bool) or not isinstance(
+            rank,
+            int,
+        ):
+            raise TypeError(
+                "rank must be an integer."
+            )
+
+        ordered = self._ordered_ranking()
+        available_ranks = len(ordered)
+
+        if rank < 1 or rank > available_ranks:
+            raise ValueError(
+                f"Invalid model rank: {rank}. "
+                f"Available ranks: 1-{available_ranks}."
+            )
+
+        row = ordered.iloc[rank - 1]
+
+        return str(row["model"]), int(rank)
+
+    def _resolve_model_by_name(
+        self,
+        model: str,
+    ) -> tuple[str, int]:
+        """
+        Resolve a registry model name to its ranking position.
+        """
+
+        if not isinstance(model, str) or not model.strip():
+            raise TypeError(
+                "model must be a non-empty string."
+            )
+
+        model_name = model.strip()
+        ordered = self._ordered_ranking()
+        matches = ordered[
+            ordered["model"].astype(str) == model_name
+        ]
+
+        if matches.empty:
+            available = ", ".join(
+                ordered["model"].astype(str).tolist()
+            )
+            raise ValueError(
+                f"Model '{model_name}' was not evaluated. "
+                f"Available models: {available}."
+            )
+
+        selection_rank = int(matches.index[0]) + 1
+
+        return model_name, selection_rank
+
+    def _build_save_metadata(self) -> dict[str, Any]:
+        """
+        Build metadata for the automatically ranked best model.
+        """
+
+        return {
+            "target": self.target,
+            "task_type": self.task_type,
+            "best_model": self.best_model,
+            "objective": self.objective,
+            "test_size": self.test_size,
+            "cv": self.cv,
+            "random_state": self.random_state,
+            "variance_threshold": (
+                self.variance_threshold
+            ),
+            "correlation_threshold": (
+                self.correlation_threshold
+            ),
+            "enable_optimization": (
+                self.enable_optimization
+            ),
+            "optimization_models": (
+                self.optimization_models
+            ),
+            "optimization_max_trials": (
+                self.optimization_max_trials
+            ),
+            "run_id": self.run_id,
+            "experiment_id": self.experiment_id,
+            "reproducibility": self.reproducibility,
+        }
+
+    def _build_export_metadata(self) -> dict[str, Any]:
+        """
+        Build metadata for export_model().
+
+        Preserves the existing save() metadata shape when no manual
+        selection was made. When a model was manually selected, adds
+        selection details without removing existing keys.
+        """
+
+        metadata = self._build_save_metadata()
+
+        if self.selected_model is None:
+            return metadata
+
+        metadata["model"] = self.selected_model
+        metadata["selection_method"] = self.selection_method
+        metadata["selection_rank"] = self.selected_rank
+        metadata["selected_model"] = self.selected_model
+        metadata["cv_metrics"] = self._selection_cv_metrics(
+            self.selected_model
+        )
+
+        return metadata
+
+    def _selection_cv_metrics(
+        self,
+        model_name: str,
+    ) -> dict[str, Any]:
+        """
+        Extract CV metric columns for a ranked model.
+        """
+
+        ranking = self._get_ranking()
+        matches = ranking[
+            ranking["model"].astype(str) == model_name
+        ]
+
+        if matches.empty:
+            return {}
+
+        row = matches.iloc[0]
+        metrics: dict[str, Any] = {}
+
+        for column in ranking.columns:
+            if column.startswith("cv_mean_") or column.startswith(
+                "cv_std_"
+            ):
+                value = row[column]
+                if pd.isna(value):
+                    metrics[column] = None
+                else:
+                    metrics[column] = (
+                        float(value)
+                        if isinstance(value, (int, float))
+                        else value
+                    )
+
+        if "overall_score" in ranking.columns:
+            score = row["overall_score"]
+            metrics["overall_score"] = (
+                None
+                if pd.isna(score)
+                else float(score)
+            )
+
+        return metrics
 
     def _load_data(
         self,

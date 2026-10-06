@@ -85,6 +85,10 @@ def test_automl_initial_state():
     assert automl.is_fitted is False
     assert automl.best_pipeline is None
     assert automl.best_model is None
+    assert automl.selected_model is None
+    assert automl.selected_pipeline is None
+    assert automl.selected_rank is None
+    assert automl.selection_method is None
     assert automl.result is None
     assert automl.target is None
     assert automl.task_type is None

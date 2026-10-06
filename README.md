@@ -112,6 +112,84 @@ modelforge --help
 
 ---
 
+## Selecting and Exporting a Model
+
+ModelForge evaluates and ranks candidate models automatically. By default,
+`best_model` / `best_pipeline` hold the top-ranked result, and `save()` persists
+that automatically recommended pipeline.
+
+You can override the recommendation after `fit()` without re-running AutoML.
+The selected candidate is refitted on the full training dataset before it is
+used for prediction or export. The exported artifact is the complete
+scikit-learn pipeline (preprocessing + estimator). Metadata records how the
+model was selected.
+
+### Automatic behavior
+
+```python
+automl.fit(df, target="target")
+automl.save("best_model.joblib")
+```
+
+### Select by rank
+
+```python
+automl.fit(df, target="target")
+
+automl.select_model(rank=2)
+
+automl.export_model(
+    "selected_model.joblib"
+)
+```
+
+### Select by model name
+
+```python
+automl.select_model(
+    model="random_forest_classifier"
+)
+
+automl.export_model(
+    "random_forest_model.joblib"
+)
+```
+
+Notes:
+
+- `best_model` remains the automatically ranked best model.
+- `selected_model` / `selected_pipeline` hold the user override.
+- After `select_model()`, `predict()` and `predict_proba()` use the selected
+  pipeline. Before selection they continue to use the best pipeline.
+- `save()` always saves the automatically ranked best model.
+- `export_model()` saves the selected model when one was chosen; otherwise it
+  saves the best model.
+
+### CLI selection
+
+Export a ranked model without changing the default train workflow:
+
+```bash
+modelforge train \
+    --data data.csv \
+    --target target \
+    --model-rank 2 \
+    --output random_forest_model.joblib
+```
+
+Or select by registry model name:
+
+```bash
+modelforge train \
+    --data data.csv \
+    --target target \
+    --model random_forest_classifier \
+    --output random_forest_model.joblib
+```
+
+Existing `modelforge train` commands without `--model` / `--model-rank`
+continue to save the automatically recommended best model.
+
 ## Configuration
 
 The `AutoML` constructor supports the following parameters:

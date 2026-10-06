@@ -44,6 +44,14 @@ def _safe_value(value, default=""):
     return str(value)
 
 
+def _model_display_name(automl: AutoML, model_name: str) -> str:
+    """Return a human-readable model name from the registry."""
+    try:
+        return automl.registry.get(str(model_name)).name
+    except Exception:
+        return str(model_name)
+
+
 def _experiment_target(experiment):
     """Extract the target name from an experiment record."""
     target = experiment.get("target")
@@ -137,7 +145,9 @@ def train(
         "--save",
         "-o",
         help=(
-            "Path where the best model will be saved. "
+            "Path where the model will be saved. "
+            "Saves the automatically ranked best model "
+            "unless --model or --model-rank is provided. "
             "--save is an alias for --output."
         ),
     ),
@@ -178,6 +188,25 @@ def train(
         help=(
             "Comma-separated model names. "
             "Overrides models from --config."
+        ),
+    ),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        help=(
+            "Optional registry model name to export "
+            "instead of the automatically ranked best "
+            "model. Mutually consistent with --model-rank "
+            "when both are provided."
+        ),
+    ),
+    model_rank: int | None = typer.Option(
+        None,
+        "--model-rank",
+        help=(
+            "Optional 1-based ranking position of the "
+            "model to export instead of the automatically "
+            "ranked best model."
         ),
     ),
     config: str | None = typer.Option(
@@ -271,9 +300,9 @@ def train(
 
         if models:
             selected_models = [
-                model.strip()
-                for model in models.split(",")
-                if model.strip()
+                model_name.strip()
+                for model_name in models.split(",")
+                if model_name.strip()
             ]
         else:
             selected_models = config_values.get(
@@ -380,10 +409,20 @@ def train(
                 print_report=False,
             )
 
-        model_path = automl.save(
-            output,
-            overwrite=overwrite,
-        )
+        if model is not None or model_rank is not None:
+            automl.select_model(
+                rank=model_rank,
+                model=model,
+            )
+            model_path = automl.export_model(
+                output,
+                overwrite=overwrite,
+            )
+        else:
+            model_path = automl.save(
+                output,
+                overwrite=overwrite,
+            )
 
         console.print(
             "[bold green]✓ Training completed[/bold green]"
@@ -420,10 +459,34 @@ def train(
             str(result["models_evaluated"]),
         )
 
-        summary_table.add_row(
-            "Best Model",
+        recommended_display = _model_display_name(
+            automl,
             result["best_model"],
         )
+
+        summary_table.add_row(
+            "Automatically Recommended",
+            recommended_display,
+        )
+
+        if automl.selected_model is not None:
+            selected_display = _model_display_name(
+                automl,
+                automl.selected_model,
+            )
+            summary_table.add_row(
+                "User Selected",
+                selected_display,
+            )
+            summary_table.add_row(
+                "Selection",
+                f"Rank #{automl.selected_rank}",
+            )
+        else:
+            summary_table.add_row(
+                "Best Model",
+                result["best_model"],
+            )
 
         summary_table.add_row(
             "Ranking Objective",
@@ -518,6 +581,21 @@ def train(
         console.print(
             ranking_table
         )
+
+        if automl.selected_model is not None:
+            console.print()
+            console.print(
+                "[bold]Automatically recommended:[/bold] "
+                f"{recommended_display}"
+            )
+            console.print(
+                "[bold]User selected:[/bold] "
+                f"{_model_display_name(automl, automl.selected_model)}"
+            )
+            console.print(
+                "[bold]Selection:[/bold] "
+                f"Rank #{automl.selected_rank}"
+            )
 
     except Exception as exc:
         console.print(
