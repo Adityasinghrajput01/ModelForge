@@ -6,7 +6,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/autoforge-engine.svg)](https://pypi.org/project/autoforge-engine/)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://pypi.org/project/autoforge-engine/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-491%20passing-brightgreen.svg)](#testing--validation)
 [![GitHub](https://img.shields.io/badge/GitHub-ModelForge-181717?logo=github)](https://github.com/Adityasinghrajput01/ModelForge)
 
@@ -65,7 +65,7 @@ pip install autoforge-engine
 Install a specific version:
 
 ```bash
-pip install autoforge-engine==1.0.0
+pip install autoforge-engine==1.0.1
 ```
 
 Verify the install:
@@ -385,7 +385,7 @@ ModelForge is built to demonstrate serious ML engineering practice — not to re
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE)
 
 ## Links
 
